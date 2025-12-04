@@ -1,57 +1,82 @@
+import requests
 import cv2
 import numpy as np
+from PIL import Image, ImageEnhance
+import io
 
-cap = cv2.VideoCapture(0)
+# ==============================
+# CONFIG
+# ==============================
+HF_API_KEY = "YOUR_HUGGINGFACE_API_KEY"
+MODEL_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2"
 
-if not cap.isOpened():
-  print("Error: Could not open video stream.") 
-  exit()
-while True:
-  ret, frame = cap.read()
-  if not ret:
-    print("Error: Could not read frame.")
-    break
-  hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+headers = {
+    "Authorization": f"Bearer {HF_API_KEY}"
+}
 
-  lower_skin = np.array([0, 20, 70], dtype=np.uint8)
-  upper_skin = np.array([20, 255, 255], dtype=np.uint8)
+# ==============================
+# IMAGE GENERATION
+# ==============================
+def generate_image(prompt):
+    payload = {
+        "inputs": prompt
+    }
 
-  mask = cv2.inRange(hsv, lower_skin, upper_skin)
-  result = cv2.bitwise_and(frame, frame, mask=mask)
-  contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-  max_contour = max(contours, key=cv2.contourArea)
-  if cv2.contourArea(max_contour) > 500:
-    x, y, w, h = cv2.boundingRect(max_contour)
-    center_x = int(x + w / 2)
-    center_y = int(y + h / 2)
-    cv2.circle(frame, (center_x, center_y), 5, (0, 0, 255), 2)
+    response = requests.post(MODEL_URL, headers=headers, json=payload)
 
-  cv2.imshow('Original Frame', frame)
-  cv2.imshow('Filtered Frame', result)
-  if cv2.waitKey(1) & 0xFF == ord('q'):
-    exit()
+    if response.status_code != 200:
+        raise Exception("Image generation failed:", response.text)
 
-def color_filter(frame, filter):
-  ret, frame = cap.read()
-  red_tint = np.array([0, 0, 255], dtype=np.uint8)
-  blue_tint = np.array([255, 0, 0], dtype=np.uint8)
-  green_tint = np.array([0, 255, 0], dtype=np.uint8)
-  print('press one of the following keys to filter the color:')
-  print('r for red')
-  print('b for blue')
-  print('g for green')
-  print('q to quit')
-  while True:
-    key = cv2.waitKey(1)
-    if key == ord('r'):
-      filter = (red_tint)
-    if key == ord('b'):
-      filter = (blue_tint)
-    if key == ord('g'):
-      filter = (green_tint)
-    filtered_image = cv2.add(frame, filter)
-    cv2.imshow('Filtered Frame', filtered_image)
-    if key == ord('q'):
-      break
-cap.release()
-cv2.destroyAllWindows()
+    image_bytes = response.content
+    image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    image.save("original.png")
+    print("Saved: original.png")
+    return image
+
+
+# ==============================
+# DAYLIGHT EDITION
+# ==============================
+def daylight_edition(image):
+    enhancer_brightness = ImageEnhance.Brightness(image)
+    bright_img = enhancer_brightness.enhance(1.3)
+
+    enhancer_contrast = ImageEnhance.Contrast(bright_img)
+    soft_img = enhancer_contrast.enhance(0.9)
+
+    soft_img.save("daylight_edition.png")
+    print("Saved: daylight_edition.png")
+
+
+# ==============================
+# NIGHT MOOD EDITION
+# ==============================
+def night_mood(image):
+    cv_img = np.array(image)
+    cv_img = cv2.cvtColor(cv_img, cv2.COLOR_RGB2BGR)
+
+    # Increase contrast
+    alpha = 1.4  # contrast
+    beta = -30   # brightness
+    contrast_img = cv2.convertScaleAbs(cv_img, alpha=alpha, beta=beta)
+
+    # Subtle Gaussian blur
+    blurred = cv2.GaussianBlur(contrast_img, (7, 7), 0)
+
+    final = cv2.cvtColor(blurred, cv2.COLOR_BGR2RGB)
+    Image.fromarray(final).save("night_mood.png")
+    print("Saved: night_mood.png")
+
+
+# ==============================
+# MAIN PROGRAM
+# ==============================
+if __name__ == "__main__":
+    prompt = input("Enter your AI image prompt: ")
+
+    base_image = generate_image(prompt)
+
+    daylight_edition(base_image)
+    night_mood(base_image)
+
+    print("\nAll versions generated successfully!")
